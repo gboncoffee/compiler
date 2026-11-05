@@ -7,35 +7,43 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
+
+bool ErrorOk(Error error)
+{
+    return error.location.column == 0 && error.location.line == 0 &&
+        error.message == nullptr && error.dynamic == nullptr;
+}
 
 void PrintError(Error error, const char* file)
 {
     printf(
         "%s:%d:%d: %s: %s.\n",
         file,
-        (int) error.line,
-        (int) error.column,
+        (int) error.location.line,
+        (int) error.location.column,
         error.message,
         error.dynamic
     );
 }
 
-Errors* Compile(Arena* arena, char* program, FILE* output)
+Error Compile(Arena* arena, char* program, FILE* output)
 {
-    Errors* errors = nullptr;
-    auto    tokens = Tokenize(arena, program, &errors);
+    auto error = ZERO_ERROR;
 
-    auto tree = Parse(arena, tokens, &errors);
-    if (errors != nullptr) {
-        return errors;
-    }
+    auto tokens = Tokenize(arena, program, &error);
+    if (!ErrorOk(error))
+        return error;
 
-    errors = SemanticAnalysis(arena, tree);
-    if (errors != nullptr) {
-        return errors;
-    }
+    auto tree = Parse(arena, program, tokens, &error);
+    if (!ErrorOk(error))
+        return error;
+
+    error = SemanticAnalysis(arena, tree);
+    if (!ErrorOk(error))
+        return error;
 
     Codegen(arena, tree, output);
 
-    return nullptr;
+    return error;
 }

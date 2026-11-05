@@ -5,6 +5,6 @@
 #include "compiler.h"
 #include "parser.h"
 
-Errors* SemanticAnalysis(Arena* arena, Ast* tree);
+Error SemanticAnalysis(Arena* arena, Ast* tree);
 
 #endif // COMPILER_SEMANTICS_H_

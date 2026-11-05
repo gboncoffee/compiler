@@ -1,106 +1,100 @@
 #include "parser.h"
+#include "tokenizer.h"
 
-Ast* Parse(Arena* arena, Tokens* tokens, Errors** errors)
+Location MakeLocation(const char* program, Tokens* token)
 {
-    for (auto token = tokens; token != nullptr; token = token->next) {
-        switch (token->this.kind) {
-        case TokenProgram:
-            printf("TokenProgram\n");
+    Location location;
+
+    for (auto i = 0; program[i] != '\0'; i += 1) {
+        if (token != nullptr && token->this.lex.ptr == &program[i])
             break;
-        case TokenVar:
-            printf("TokenVar\n");
-            break;
-        case TokenIdent:
-            printf(
-                "TokenIdent %.*s\n",
-                (int) token->this.lex.size,
-                token->this.lex.ptr
-            );
-            break;
-        case TokenDigit:
-            printf(
-                "TokenDigit %.*s\n",
-                (int) token->this.lex.size,
-                token->this.lex.ptr
-            );
-            break;
-        case TokenArray:
-            printf("TokenArray\n");
-            break;
-        case TokenOf:
-            printf("TokenOf\n");
-            break;
-        case TokenOpenSq:
-            printf("TokenOpenSq\n");
-            break;
-        case TokenCloseSq:
-            printf("TokenCloseSq\n");
-            break;
-        case TokenOpenParen:
-            printf("TokenOpenParen\n");
-            break;
-        case TokenCloseParen:
-            printf("TokenCloseParen\n");
-            break;
-        case TokenComma:
-            printf("TokenComma\n");
-            break;
-        case TokenColon:
-            printf("TokenColon\n");
-            break;
-        case TokenSemicolon:
-            printf("TokenSemicolon\n");
-            break;
-        case TokenPeriod:
-            printf("TokenPeriod\n");
-            break;
-        case TokenTwoPeriods:
-            printf("TokenTwoPeriods\n");
-            break;
-        case TokenOperator:
-            printf(
-                "TokenOperator %.*s\n",
-                (int) token->this.lex.size,
-                token->this.lex.ptr
-            );
-            break;
-        case TokenIf:
-            printf("TokenIf\n");
-            break;
-        case TokenElse:
-            printf("TokenElse\n");
-            break;
-        case TokenThen:
-            printf("TokenThen\n");
-            break;
-        case TokenWhile:
-            printf("TokenWhile\n");
-            break;
-        case TokenDo:
-            printf("TokenDo\n");
-            break;
-        case TokenBegin:
-            printf("TokenBegin\n");
-            break;
-        case TokenEnd:
-            printf("TokenEnd\n");
-            break;
-        case TokenFunction:
-            printf("TokenFunction\n");
-            break;
-        case TokenProcedure:
-            printf("TokenProcedure\n");
-            break;
-        case TokenComment:
-            printf("TokenComment\n");
-            break;
-        case TokenEOF:
-            printf("TokenEOF\n");
-            break;
+        if (program[i] == '\n') {
+            location.line += 1;
+            location.column = 1;
+        } else {
+            location.column += 1;
         }
     }
 
-    (void) arena;
-    (void) errors;
+    return location;
+}
+
+Tokens* SkipComments(Tokens* tokens)
+{
+    if (tokens == nullptr)
+        return nullptr;
+    if (tokens->this.kind == TokenComment)
+        return SkipComments(tokens);
+    tokens->next = SkipComments(tokens->next);
+    return tokens;
+}
+
+Tokens* SkipIODeclaration(Tokens* tokens)
+{
+    if (tokens == nullptr)
+        return nullptr;
+    if (tokens->this.kind != TokenOpenParen)
+        return tokens;
+    tokens = tokens->next;
     return nullptr;
+}
+
+Ast* ParseRec(
+    Arena*      arena,
+    Ast*        ast,
+    const char* program,
+    Tokens*     tokens,
+    Error*      error
+)
+{
+    if (tokens == nullptr) {}
+}
+
+Ast* ParseProgram(
+    Arena*      arena,
+    const char* program,
+    Tokens*     tokens,
+    Error*      error
+)
+{
+    if (tokens == nullptr || tokens->this.kind != TokenProgram) {
+        *error = (Error) {
+            .location = MakeLocation(program, tokens),
+            .message  = "expected program declaration",
+            .dynamic  = nullptr,
+        };
+        return nullptr;
+    }
+    tokens = tokens->next;
+    if (tokens == nullptr || tokens->this.kind != TokenIdent) {
+        *error = (Error) {
+            .location = MakeLocation(program, tokens),
+            .message  = "expected program name",
+            .dynamic  = nullptr,
+        };
+    }
+
+    auto ast          = (Ast*) Calloc(arena, sizeof(Ast));
+    ast->name         = tokens->this.lex;
+    ast->declarations = nullptr;
+    ast->subprograms  = nullptr;
+
+    tokens = SkipIODeclaration(tokens);
+    if (tokens == nullptr || tokens->this.kind != TokenSemicolon) {
+        *error = (Error) {
+            .location = MakeLocation(program, tokens),
+            .message  = "expected semicolon",
+            .dynamic  = nullptr,
+        };
+        return nullptr;
+    }
+
+    return ParseRec(arena, ast, program, tokens, error);
+}
+
+Ast* Parse(Arena* arena, const char* program, Tokens* tokens, Error* error)
+{
+    tokens = SkipComments(tokens);
+
+    return ParseProgram(arena, program, tokens, error);
 }

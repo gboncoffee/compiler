@@ -40,8 +40,7 @@ constexpr unsigned long keywordsLen = sizeof(keywords) / sizeof(keywords[0]);
 
 #include <stdio.h>
 
-Errors* MakeTokenError(
-    Arena*      arena,
+Error MakeTokenError(
     const char* program,
     Token* this,
     const char* message,
@@ -60,22 +59,23 @@ Errors* MakeTokenError(
         column += 1;
     }
 
-    auto errors          = (Errors*) Calloc(arena, sizeof(Errors));
-    errors->next         = nullptr;
-    errors->this.line    = line;
-    errors->this.column  = column;
-    errors->this.message = message;
-    errors->this.dynamic = dynamic;
+    Error error = {
+        .location =
+            {
+                       .line   = line,
+                       .column = column,
+                       },
+        .message = message,
+        .dynamic = dynamic,
+    };
 
-    return errors;
+    return error;
 }
 
 void MakeKeyword(Token* this)
 {
     for (auto i = 0; i < (int) keywordsLen; i += 1) {
-        if ((strncmp(this->lex.ptr, keywords[i].keyword, this->lex.size) ==
-             0) &&
-            strlen(keywords[i].keyword) == this->lex.size) {
+        if (StringEqCstr(this->lex, keywords[i].keyword)) {
             this->kind = keywords[i].kind;
             return;
         }
@@ -84,15 +84,13 @@ void MakeKeyword(Token* this)
     this->kind = TokenIdent;
 }
 
-Tokens* Tokenize(Arena* arena, char* program, Errors** errors)
+Tokens* Tokenize(Arena* arena, char* program, Error* error)
 {
-    (void) errors;
     auto list  = (Tokens*) Calloc(arena, sizeof(Tokens));
     auto token = list;
 
-    for (int i = 0; program[i] != '\0'; i += 1) {
+    for (int i = 0; program[i] != '\0'; i += 1)
         program[i] = tolower(program[i]);
-    }
 
     auto idx   = 0;
     auto state = StateInitial;
@@ -220,8 +218,8 @@ Tokens* Tokenize(Arena* arena, char* program, Errors** errors)
                 idx += 1;
 
             } else if (cchar == '\0') {
-                *errors = MakeTokenError(
-                    arena, program, &token->this, "unclosed comment", nullptr
+                *error = MakeTokenError(
+                    program, &token->this, "unclosed comment", nullptr
                 );
                 token->next      = nullptr;
                 token->this.kind = TokenComment;

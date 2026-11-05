@@ -8,17 +8,23 @@
 typedef struct {
     unsigned long line;
     unsigned long column;
-    const char*   message;
-    char*         dynamic;
+} Location;
+
+typedef struct {
+    Location    location;
+    const char* message;
+    char*       dynamic;
 } Error;
 
-typedef struct Errors {
-    Error this;
-    struct Errors* next;
-} Errors;
+constexpr Error ZERO_ERROR = {
+    {0, 0},
+    nullptr,
+    nullptr
+};
 
+bool ErrorOk(Error error);
 void PrintError(Error error, const char* file);
 
-Errors* Compile(Arena* arena, char* program, FILE* output);
+Error Compile(Arena* arena, char* program, FILE* output);
 
 #endif // COMPILER_COMPILER_H_

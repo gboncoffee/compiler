@@ -1,8 +1,12 @@
 #include "semantics.h"
 
-Errors* SemanticAnalysis(Arena* arena, Ast* tree)
+#include <string.h>
+
+Error SemanticAnalysis(Arena* arena, Ast* tree)
 {
+    Error error;
+    memset(&error, 0, sizeof(error));
     (void) arena;
     (void) tree;
-    return nullptr;
+    return error;
 }

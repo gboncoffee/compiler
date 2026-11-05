@@ -40,9 +40,9 @@ int main(int argc, char* argv[])
 
     FILE* output = fopen("a.out", "w");
 
-    auto errors = Compile(arena, input, output);
-    for (auto error = errors; error != nullptr; error = error->next)
-        PrintError(errors->this, argv[1]);
+    auto error = Compile(arena, input, output);
+    if (!ErrorOk(error))
+        PrintError(error, argv[1]);
 
     DropArena(arena);
 
