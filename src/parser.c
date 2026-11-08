@@ -3,7 +3,7 @@
 
 Location MakeLocation(const char* program, Tokens* token)
 {
-    Location location;
+    auto location = (Location) {1, 1};
 
     for (auto i = 0; program[i] != '\0'; i += 1) {
         if (token != nullptr && token->this.lex.ptr == &program[i])
@@ -29,17 +29,98 @@ Tokens* SkipComments(Tokens* tokens)
     return tokens;
 }
 
-Tokens* SkipIODeclaration(Tokens* tokens)
+Tokens* SkipIODeclaration(Tokens* tokens, const char* program, Error* error)
 {
-    if (tokens == nullptr)
-        return nullptr;
-    if (tokens->this.kind != TokenOpenParen)
+    if (tokens == nullptr || tokens->this.kind != TokenOpenParen)
         return tokens;
     tokens = tokens->next;
+    if (tokens == nullptr || tokens->this.kind != TokenIdent) {
+        *error = (Error) {
+            .location = MakeLocation(program, tokens),
+            .message  = "expected IO declaration",
+            .dynamic  = nullptr,
+        };
+        return nullptr;
+    }
+    tokens = tokens->next;
+    if (tokens == nullptr || tokens->this.kind != TokenComma) {
+        *error = (Error) {
+            .location = MakeLocation(program, tokens),
+            .message  = "expected comma",
+            .dynamic  = nullptr,
+        };
+        return nullptr;
+    }
+    tokens = tokens->next;
+    if (tokens == nullptr || tokens->this.kind != TokenIdent) {
+        *error = (Error) {
+            .location = MakeLocation(program, tokens),
+            .message  = "expected IO declaration",
+            .dynamic  = nullptr,
+        };
+        return nullptr;
+    }
+    tokens = tokens->next;
+    if (tokens == nullptr || tokens->this.kind != TokenCloseParen) {
+        *error = (Error) {
+            .location = MakeLocation(program, tokens),
+            .message  = "expected closing parenthesis",
+            .dynamic  = nullptr,
+        };
+        return nullptr;
+    }
+
+    return tokens->next;
+}
+
+Declarations* ParseVariableDeclarations(
+    Arena*      arena,
+    const char* program,
+    Tokens*     tokens,
+    Error*      error,
+    Tokens**    tokensAfter
+)
+{
+    (void) arena;
+    (void) program;
+    (void) tokens;
+    (void) error;
+    (void) tokensAfter;
+}
+
+Subprograms* ParseSubprograms(
+    Arena*      arena,
+    const char* program,
+    Tokens*     tokens,
+    Error*      error,
+    Tokens**    tokensAfter
+)
+{
+    (void) arena;
+    (void) program;
+    (void) tokens;
+    (void) error;
+    *tokensAfter = tokens;
     return nullptr;
 }
 
-Ast* ParseRec(
+Statement ParseStatement(
+    Arena*      arena,
+    const char* program,
+    Tokens*     tokens,
+    Error*      error,
+    Tokens**    tokensAfter
+)
+{
+    (void) arena;
+    (void) program;
+    (void) tokens;
+    (void) error;
+    *tokensAfter = tokens;
+    return (Statement) {0};
+}
+
+void ParseProgramBody(
     Arena*      arena,
     Ast*        ast,
     const char* program,
@@ -47,7 +128,54 @@ Ast* ParseRec(
     Error*      error
 )
 {
-    if (tokens == nullptr) {}
+    if (tokens == nullptr) {
+        *error = (Error) {
+            .location = MakeLocation(program, tokens),
+            .message  = "expected at least main program declaration",
+            .dynamic  = nullptr,
+        };
+        return;
+    }
+
+    Tokens* tokensAfterDecl = nullptr;
+    ast->declarations       = ParseVariableDeclarations(
+        arena, program, tokens, error, &tokensAfterDecl
+    );
+    if (!ErrorOk(*error))
+        return;
+
+    Tokens* tokensAfterSubprgs = nullptr;
+    ast->subprograms           = ParseSubprograms(
+        arena, program, tokensAfterDecl, error, &tokensAfterSubprgs
+    );
+    if (!ErrorOk(*error))
+        return;
+
+    Tokens* tokensAfterMainPrg = nullptr;
+    ast->main                  = ParseStatement(
+        arena, program, tokensAfterSubprgs, error, &tokensAfterMainPrg
+    );
+    if (!ErrorOk(*error))
+        return;
+
+    if (tokensAfterMainPrg == nullptr ||
+        tokensAfterMainPrg->this.kind != TokenPeriod) {
+        *error = (Error) {
+            .location = MakeLocation(program, nullptr),
+            .message  = "expected . after main program declaration",
+            .dynamic  = nullptr,
+        };
+        return;
+    }
+    if (tokensAfterMainPrg->next == nullptr ||
+        tokensAfterMainPrg->next->this.kind != TokenEOF) {
+        *error = (Error) {
+            .location = MakeLocation(program, nullptr),
+            .message  = "expected nothing, got something",
+            .dynamic  = nullptr,
+        };
+        return;
+    }
 }
 
 Ast* ParseProgram(
@@ -79,7 +207,9 @@ Ast* ParseProgram(
     ast->declarations = nullptr;
     ast->subprograms  = nullptr;
 
-    tokens = SkipIODeclaration(tokens);
+    tokens = SkipIODeclaration(tokens->next, program, error);
+    if (!ErrorOk(*error))
+        return nullptr;
     if (tokens == nullptr || tokens->this.kind != TokenSemicolon) {
         *error = (Error) {
             .location = MakeLocation(program, tokens),
@@ -89,7 +219,8 @@ Ast* ParseProgram(
         return nullptr;
     }
 
-    return ParseRec(arena, ast, program, tokens, error);
+    ParseProgramBody(arena, ast, program, tokens, error);
+    return ast;
 }
 
 Ast* Parse(Arena* arena, const char* program, Tokens* tokens, Error* error)

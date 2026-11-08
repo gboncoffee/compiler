@@ -17,13 +17,23 @@ bool ErrorOk(Error error)
 
 void PrintError(Error error, const char* file)
 {
+    if (error.dynamic != nullptr) {
+        printf(
+            "%s:%d:%d: %s: %s.\n",
+            file,
+            (int) error.location.line,
+            (int) error.location.column,
+            error.message,
+            error.dynamic
+        );
+        return;
+    }
     printf(
-        "%s:%d:%d: %s: %s.\n",
+        "%s:%d:%d: %s.\n",
         file,
         (int) error.location.line,
         (int) error.location.column,
-        error.message,
-        error.dynamic
+        error.message
     );
 }
 
