@@ -21,8 +21,8 @@ Location MakeLocation(const char* program, Tokens* token)
 
 Tokens* SkipComments(Tokens* tokens)
 {
-    if (tokens == nullptr)
-        return nullptr;
+    if (tokens->this.kind == TokenEOF)
+        return tokens;
     if (tokens->this.kind == TokenComment)
         return SkipComments(tokens);
     tokens->next = SkipComments(tokens->next);
@@ -31,46 +31,177 @@ Tokens* SkipComments(Tokens* tokens)
 
 Tokens* SkipIODeclaration(Tokens* tokens, const char* program, Error* error)
 {
-    if (tokens == nullptr || tokens->this.kind != TokenOpenParen)
+    if (tokens->this.kind != TokenOpenParen)
         return tokens;
     tokens = tokens->next;
-    if (tokens == nullptr || tokens->this.kind != TokenIdent) {
+    if (tokens->this.kind != TokenIdent) {
         *error = (Error) {
             .location = MakeLocation(program, tokens),
-            .message  = "expected IO declaration",
-            .dynamic  = nullptr,
+            .message  = STR("expected IO declaration, got"),
+            .dynamic  = tokens->this.lex,
         };
         return nullptr;
     }
     tokens = tokens->next;
-    if (tokens == nullptr || tokens->this.kind != TokenComma) {
+    if (tokens->this.kind != TokenComma) {
         *error = (Error) {
             .location = MakeLocation(program, tokens),
-            .message  = "expected comma",
-            .dynamic  = nullptr,
+            .message  = STR("expected comma, got"),
+            .dynamic  = tokens->this.lex,
         };
         return nullptr;
     }
     tokens = tokens->next;
-    if (tokens == nullptr || tokens->this.kind != TokenIdent) {
+    if (tokens->this.kind != TokenIdent) {
         *error = (Error) {
             .location = MakeLocation(program, tokens),
-            .message  = "expected IO declaration",
-            .dynamic  = nullptr,
+            .message  = STR("expected IO declaration, got"),
+            .dynamic  = tokens->this.lex,
         };
         return nullptr;
     }
     tokens = tokens->next;
-    if (tokens == nullptr || tokens->this.kind != TokenCloseParen) {
+    if (tokens->this.kind != TokenCloseParen) {
         *error = (Error) {
             .location = MakeLocation(program, tokens),
-            .message  = "expected closing parenthesis",
-            .dynamic  = nullptr,
+            .message  = STR("expected closing parenthesis, got"),
+            .dynamic  = tokens->this.lex,
         };
         return nullptr;
     }
 
     return tokens->next;
+}
+
+Names* ParseNameList(
+    Arena*      arena,
+    const char* program,
+    Tokens*     tokens,
+    Error*      error,
+    Tokens**    tokensAfter
+)
+{
+    if (tokens->this.kind != TokenIdent) {
+        *error = (Error) {
+            .location = MakeLocation(program, tokens),
+            .message  = STR("expected identifier, got"),
+            .dynamic  = tokens->this.lex,
+        };
+        return nullptr;
+    }
+
+    auto name  = (Names*) Calloc(arena, sizeof(Names));
+    name->this = tokens->this.lex;
+    if (tokens->next == nullptr || tokens->next->this.kind != TokenComma) {
+        *tokensAfter = tokens->next;
+        name->next   = nullptr;
+        return name;
+    }
+    name->next =
+        ParseNameList(arena, program, tokens->next->next, error, tokensAfter);
+    return name;
+}
+
+Array ParseArraySpecifier(
+    Arena*      arena,
+    const char* program,
+    Tokens*     tokens,
+    Error*      error,
+    Tokens**    tokensAfter
+)
+{
+    (void) arena;
+    (void) tokensAfter;
+    if (tokens->this.kind != TokenOpenSq) {
+        *error = (Error) {
+            .location = MakeLocation(program, tokens),
+            .message  = STR("expected array size specifier, got"),
+            .dynamic  = tokens->this.lex,
+        };
+        return (Array) {0};
+    }
+    tokens = tokens->next;
+    if (tokens->this.kind != TokenDigit) {
+        *error = (Error) {
+            .location = MakeLocation(program, tokens),
+            .message  = STR("expected number for array size specifier, got"),
+            .dynamic  = tokens->this.lex,
+        };
+        return (Array) {0};
+    }
+    // TODO.
+}
+
+Type ParseType(
+    Arena*      arena,
+    const char* program,
+    Tokens*     tokens,
+    Error*      error,
+    Tokens**    tokensAfter
+)
+{
+    switch (tokens->this.kind) {
+    case TokenReal:
+        return (Type) {
+            .kind = TypeReal,
+        };
+    case TokenInteger:
+        return (Type) {
+            .kind = TypeInteger,
+        };
+    case TokenArray:
+        return (Type) {
+            .kind  = TypeArray,
+            .array = ParseArraySpecifier(
+                arena, program, tokens->next, error, tokensAfter
+            ),
+        };
+        break;
+    default:
+        *error = (Error) {
+            .location = MakeLocation(program, tokens),
+            .message  = STR("expected type, got"),
+            .dynamic  = tokens->this.lex,
+        };
+        return (Type) {0};
+    }
+}
+
+Type ParseTypeSpecifier(
+    Arena*      arena,
+    const char* program,
+    Tokens*     tokens,
+    Error*      error,
+    Tokens**    tokensAfter
+)
+{
+    if (tokens->this.kind != TokenColon) {
+        *error = (Error) {
+            .location = MakeLocation(program, tokens),
+            .message  = STR("expected colon after identifiers, got"),
+            .dynamic  = tokens->this.lex,
+        };
+        return (Type) {0};
+    }
+
+    return ParseType(arena, program, tokens->next, error, tokensAfter);
+}
+
+Declaration ParseDeclaration(
+    Arena*      arena,
+    const char* program,
+    Tokens*     tokens,
+    Error*      error,
+    Tokens**    tokensAfter
+)
+{
+    Declaration this;
+    this.names = ParseNameList(arena, program, tokens, error, tokensAfter);
+    if (!ErrorOk(*error))
+        return this;
+    this.type =
+        ParseTypeSpecifier(arena, program, *tokensAfter, error, tokensAfter);
+    return this;
 }
 
 Declarations* ParseVariableDeclarations(
@@ -81,11 +212,18 @@ Declarations* ParseVariableDeclarations(
     Tokens**    tokensAfter
 )
 {
-    (void) arena;
-    (void) program;
-    (void) tokens;
-    (void) error;
-    (void) tokensAfter;
+    if (tokens->this.kind != TokenVar)
+        return nullptr;
+
+    auto decls = (Declarations*) Calloc(arena, sizeof(Declarations));
+    decls->this =
+        ParseDeclaration(arena, program, tokens->next, error, tokensAfter);
+    if (!ErrorOk(*error))
+        return nullptr;
+    decls->next = ParseVariableDeclarations(
+        arena, program, *tokensAfter, error, tokensAfter
+    );
+    return decls;
 }
 
 Subprograms* ParseSubprograms(
@@ -104,7 +242,7 @@ Subprograms* ParseSubprograms(
     return nullptr;
 }
 
-Statement ParseStatement(
+Expression ParseExpression(
     Arena*      arena,
     const char* program,
     Tokens*     tokens,
@@ -117,7 +255,7 @@ Statement ParseStatement(
     (void) tokens;
     (void) error;
     *tokensAfter = tokens;
-    return (Statement) {0};
+    return (Expression) {0};
 }
 
 void ParseProgramBody(
@@ -128,15 +266,6 @@ void ParseProgramBody(
     Error*      error
 )
 {
-    if (tokens == nullptr) {
-        *error = (Error) {
-            .location = MakeLocation(program, tokens),
-            .message  = "expected at least main program declaration",
-            .dynamic  = nullptr,
-        };
-        return;
-    }
-
     Tokens* tokensAfterDecl = nullptr;
     ast->declarations       = ParseVariableDeclarations(
         arena, program, tokens, error, &tokensAfterDecl
@@ -152,27 +281,25 @@ void ParseProgramBody(
         return;
 
     Tokens* tokensAfterMainPrg = nullptr;
-    ast->main                  = ParseStatement(
+    ast->main                  = ParseExpression(
         arena, program, tokensAfterSubprgs, error, &tokensAfterMainPrg
     );
     if (!ErrorOk(*error))
         return;
 
-    if (tokensAfterMainPrg == nullptr ||
-        tokensAfterMainPrg->this.kind != TokenPeriod) {
+    if (tokensAfterMainPrg->this.kind != TokenPeriod) {
         *error = (Error) {
             .location = MakeLocation(program, nullptr),
-            .message  = "expected . after main program declaration",
-            .dynamic  = nullptr,
+            .message  = STR("expected . after main program declaration, got"),
+            .dynamic  = tokens->this.lex,
         };
         return;
     }
-    if (tokensAfterMainPrg->next == nullptr ||
-        tokensAfterMainPrg->next->this.kind != TokenEOF) {
+    if (tokensAfterMainPrg->next->this.kind != TokenEOF) {
         *error = (Error) {
             .location = MakeLocation(program, nullptr),
-            .message  = "expected nothing, got something",
-            .dynamic  = nullptr,
+            .message  = STR("expected nothing, got"),
+            .dynamic  = tokens->this.lex,
         };
         return;
     }
@@ -185,20 +312,20 @@ Ast* ParseProgram(
     Error*      error
 )
 {
-    if (tokens == nullptr || tokens->this.kind != TokenProgram) {
+    if (tokens->this.kind != TokenProgram) {
         *error = (Error) {
             .location = MakeLocation(program, tokens),
-            .message  = "expected program declaration",
-            .dynamic  = nullptr,
+            .message  = STR("expected program declaration, got"),
+            .dynamic  = tokens->this.lex,
         };
         return nullptr;
     }
     tokens = tokens->next;
-    if (tokens == nullptr || tokens->this.kind != TokenIdent) {
+    if (tokens->this.kind != TokenIdent) {
         *error = (Error) {
             .location = MakeLocation(program, tokens),
-            .message  = "expected program name",
-            .dynamic  = nullptr,
+            .message  = STR("expected program name, got"),
+            .dynamic  = tokens->this.lex,
         };
     }
 
@@ -210,11 +337,11 @@ Ast* ParseProgram(
     tokens = SkipIODeclaration(tokens->next, program, error);
     if (!ErrorOk(*error))
         return nullptr;
-    if (tokens == nullptr || tokens->this.kind != TokenSemicolon) {
+    if (tokens->this.kind != TokenSemicolon) {
         *error = (Error) {
             .location = MakeLocation(program, tokens),
-            .message  = "expected semicolon",
-            .dynamic  = nullptr,
+            .message  = STR("expected semicolon, got"),
+            .dynamic  = tokens->this.lex,
         };
         return nullptr;
     }

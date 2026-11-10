@@ -12,6 +12,7 @@ typedef enum {
     StateClosingComment,
     StatePeriod,
     StateOperator,
+    StateColon,
 } State;
 
 typedef struct {
@@ -34,6 +35,8 @@ static const Keyword keywords[] = {
     {     .keyword = "else",      .kind = TokenElse},
     { .keyword = "function",  .kind = TokenFunction},
     {.keyword = "procedure", .kind = TokenProcedure},
+    {     .keyword = "real",      .kind = TokenReal},
+    {  .keyword = "integer",   .kind = TokenInteger},
 };
 
 constexpr unsigned long keywordsLen = sizeof(keywords) / sizeof(keywords[0]);
@@ -43,8 +46,8 @@ constexpr unsigned long keywordsLen = sizeof(keywords) / sizeof(keywords[0]);
 Error MakeTokenError(
     const char* program,
     Token* this,
-    const char* message,
-    char*       dynamic
+    String message,
+    String dynamic
 )
 {
     int i      = 0;
@@ -133,9 +136,7 @@ Tokens* Tokenize(Arena* arena, char* program, Error* error)
             } else if (cchar == ':') {
                 token->this.lex.ptr  = &program[idx];
                 token->this.lex.size = 1;
-                token->this.kind     = TokenColon;
-                token->next = (Tokens*) Calloc(arena, sizeof(*token->next));
-                token       = token->next;
+                state                = StateColon;
                 idx += 1;
             } else if (cchar == '(') {
                 token->this.lex.ptr  = &program[idx];
@@ -219,7 +220,7 @@ Tokens* Tokenize(Arena* arena, char* program, Error* error)
 
             } else if (cchar == '\0') {
                 *error = MakeTokenError(
-                    program, &token->this, "unclosed comment", nullptr
+                    program, &token->this, STR("unclosed comment"), STR("")
                 );
                 token->next      = nullptr;
                 token->this.kind = TokenComment;
@@ -267,6 +268,19 @@ Tokens* Tokenize(Arena* arena, char* program, Error* error)
                 token->this.kind = TokenOperator;
                 token            = token->next;
                 state            = StateInitial;
+            }
+            break;
+        case StateColon:
+            if (cchar == '=') {
+                token->this.lex.size += 1;
+                idx += 1;
+                state = StateOperator;
+            } else {
+                token->this.lex.ptr  = &program[idx];
+                token->this.lex.size = 1;
+                token->this.kind     = TokenColon;
+                token->next = (Tokens*) Calloc(arena, sizeof(*token->next));
+                token       = token->next;
             }
             break;
         }

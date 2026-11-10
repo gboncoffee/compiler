@@ -20,10 +20,7 @@ typedef struct {
 } Array;
 
 typedef struct {
-    union {
-        Array array;
-    } this;
-
+    Array    array;
     TypeKind kind;
 } Type;
 
@@ -40,10 +37,29 @@ typedef struct {
     String content;
 } Literal;
 
+typedef struct Compound {
+    struct Expression* this;
+    struct Compound* next;
+} Compound;
+
+typedef struct {
+    struct Expression* condition;
+    struct Expression* body;
+    struct Expression* elsee;
+} If;
+
+typedef struct {
+    struct Expression* condition;
+    struct Expression* body;
+} While;
+
 typedef enum {
     ExpressionLiteral,
     ExpressionName,
     ExpressionOperation,
+    ExpressionIf,
+    ExpressionWhile,
+    ExpressionCompound,
 } ExpressionKind;
 
 typedef struct {
@@ -51,58 +67,26 @@ typedef struct {
         Literal   literal;
         String    name;
         Operation operation;
+        If        iff;
+        While     whilee;
+        Compound  compound;
     } this;
 
     ExpressionKind kind;
 } Expression;
 
-struct Statement;
-
-typedef struct CompoundStatement {
-    struct Statement* this;
-    struct CompoundStatement* next;
-} CompoundStatement;
-
-typedef enum {
-    StatementAssignment,
-    StatementIf,
-    StatementWhile,
-    StatementCompound,
-} StatementKind;
+typedef struct Names {
+    String this;
+    struct Names* next;
+} Names;
 
 typedef struct {
-    String     lvalue;
-    Expression rvalue;
-} Assignment;
-
-typedef struct {
-    Expression        condition;
-    struct Statement* body;
-    struct Statement* elsee;
-} If;
-
-typedef struct {
-    Expression condition;
-} While;
-
-typedef struct {
-    union {
-        Assignment        assignment;
-        If                iff;
-        While             whilee;
-        CompoundStatement compound;
-    } this;
-
-    StatementKind kind;
-} Statement;
-
-typedef struct {
-    String name;
+    Names* names;
     Type   type;
 } Declaration;
 
 typedef struct Declarations {
-    Declaration* this;
+    Declaration this;
     struct Declarations* next;
 } Declarations;
 
@@ -119,7 +103,7 @@ typedef struct {
 
 typedef struct {
     Parameters parameters;
-    Statement  body;
+    Expression body;
 } Subprogram;
 
 typedef struct Subprograms {
@@ -131,7 +115,7 @@ typedef struct Ast {
     String        name;
     Declarations* declarations;
     Subprograms*  subprograms;
-    Statement     main;
+    Expression    main;
 } Ast;
 
 Ast* Parse(Arena* arena, const char* program, Tokens* tokens, Error* error);

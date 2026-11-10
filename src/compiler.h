@@ -2,6 +2,7 @@
 #define COMPILER_COMPILER_H_
 
 #include "arena.h"
+#include "string.h"
 
 #include <stdio.h>
 
@@ -11,15 +12,15 @@ typedef struct {
 } Location;
 
 typedef struct {
-    Location    location;
-    const char* message;
-    char*       dynamic;
+    Location location;
+    String   message;
+    String   dynamic;
 } Error;
 
 constexpr Error ZERO_ERROR = {
     {0, 0},
-    nullptr,
-    nullptr
+    STR(""),
+    STR("")
 };
 
 bool ErrorOk(Error error);

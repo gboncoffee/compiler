@@ -3,6 +3,7 @@
 #include "compiler.h"
 #include "parser.h"
 #include "semantics.h"
+#include "string.h"
 #include "tokenizer.h"
 
 #include <assert.h>
@@ -12,28 +13,31 @@
 bool ErrorOk(Error error)
 {
     return error.location.column == 0 && error.location.line == 0 &&
-        error.message == nullptr && error.dynamic == nullptr;
+        StringEqCstr(error.message, "") && StringEqCstr(error.dynamic, "");
 }
 
 void PrintError(Error error, const char* file)
 {
-    if (error.dynamic != nullptr) {
+    if (!StringEqCstr(error.dynamic, "")) {
         printf(
-            "%s:%d:%d: %s: %s.\n",
+            "%s:%d:%d: %.*s: %.*s.\n",
             file,
             (int) error.location.line,
             (int) error.location.column,
-            error.message,
-            error.dynamic
+            (int) error.message.size,
+            error.message.ptr,
+            (int) error.dynamic.size,
+            error.dynamic.ptr
         );
         return;
     }
     printf(
-        "%s:%d:%d: %s.\n",
+        "%s:%d:%d: %.*s.\n",
         file,
         (int) error.location.line,
         (int) error.location.column,
-        error.message
+        (int) error.message.size,
+        error.message.ptr
     );
 }
 

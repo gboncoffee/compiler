@@ -11,6 +11,8 @@ typedef enum {
     TokenIdent,
     TokenDigit,
     TokenArray,
+    TokenInteger,
+    TokenReal,
     TokenOf,
     TokenOpenSq,
     TokenCloseSq,
