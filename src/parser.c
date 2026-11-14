@@ -1,5 +1,9 @@
+#include "arena.h"
+#include "compiler.h"
 #include "parser.h"
 #include "tokenizer.h"
+
+#include <string.h>
 
 Location MakeLocation(const char* program, Tokens* token)
 {
@@ -102,6 +106,14 @@ Names* ParseNameList(
     return name;
 }
 
+Type ParseType(
+    Arena*      arena,
+    const char* program,
+    Tokens*     tokens,
+    Error*      error,
+    Tokens**    tokensAfter
+);
+
 Array ParseArraySpecifier(
     Arena*      arena,
     const char* program,
@@ -110,26 +122,64 @@ Array ParseArraySpecifier(
     Tokens**    tokensAfter
 )
 {
-    (void) arena;
-    (void) tokensAfter;
+    auto array = (Array) {0};
     if (tokens->this.kind != TokenOpenSq) {
         *error = (Error) {
             .location = MakeLocation(program, tokens),
             .message  = STR("expected array size specifier, got"),
             .dynamic  = tokens->this.lex,
         };
-        return (Array) {0};
+        return array;
     }
     tokens = tokens->next;
-    if (tokens->this.kind != TokenDigit) {
+    if (tokens->this.kind != TokenDigit ||
+        String2Long(tokens->this.lex, &array.begin)) {
         *error = (Error) {
             .location = MakeLocation(program, tokens),
             .message  = STR("expected number for array size specifier, got"),
             .dynamic  = tokens->this.lex,
         };
-        return (Array) {0};
+        return array;
     }
-    // TODO.
+    tokens = tokens->next;
+    if (tokens->this.kind != TokenTwoPeriods) {
+        *error = (Error) {
+            .location = MakeLocation(program, tokens),
+            .message =
+                STR("expected two periods for array size specifier, got"),
+            .dynamic = tokens->this.lex,
+        };
+        return array;
+    }
+    tokens = tokens->next;
+    if (tokens->this.kind != TokenDigit ||
+        String2Long(tokens->this.lex, &array.end)) {
+        *error = (Error) {
+            .location = MakeLocation(program, tokens),
+            .message  = STR("expected number for array size specifier, got"),
+            .dynamic  = tokens->this.lex,
+        };
+        return array;
+    }
+    tokens = tokens->next;
+    if (tokens->this.kind != TokenCloseSq) {
+        *error = (Error) {
+            .location = MakeLocation(program, tokens),
+            .message  = STR(
+                "expected closing square bracket for array size specifier, got"
+            ),
+            .dynamic = tokens->this.lex,
+        };
+        return array;
+    }
+
+    *tokensAfter = tokens->next;
+
+    array.content = (struct Type*) Calloc(arena, sizeof(Type));
+    auto type     = ParseType(arena, program, *tokensAfter, error, tokensAfter);
+    memcpy(array.content, &type, sizeof(type));
+
+    return array;
 }
 
 Type ParseType(
@@ -226,22 +276,6 @@ Declarations* ParseVariableDeclarations(
     return decls;
 }
 
-Subprograms* ParseSubprograms(
-    Arena*      arena,
-    const char* program,
-    Tokens*     tokens,
-    Error*      error,
-    Tokens**    tokensAfter
-)
-{
-    (void) arena;
-    (void) program;
-    (void) tokens;
-    (void) error;
-    *tokensAfter = tokens;
-    return nullptr;
-}
-
 Expression ParseExpression(
     Arena*      arena,
     const char* program,
@@ -254,8 +288,206 @@ Expression ParseExpression(
     (void) program;
     (void) tokens;
     (void) error;
-    *tokensAfter = tokens;
+    (void) tokensAfter;
     return (Expression) {0};
+}
+
+Parameters* ParseParameterDeclarations(
+    Arena*      arena,
+    const char* program,
+    Tokens*     tokens,
+    Error*      error,
+    Tokens**    tokensAfter
+)
+{
+    if (tokens->this.kind != TokenIdent && tokens->this.kind != TokenVar) {
+        *tokensAfter = tokens;
+        return nullptr;
+    }
+
+    auto parameters            = (Parameters*) Calloc(sizeof(Parameters));
+    parameters->next           = nullptr;
+    parameters->this.reference = tokens->this.kind == TokenVar;
+
+    if (tokens->this.kind == TokenVar)
+        tokens = tokens->next;
+
+    parameters->this.this =
+        ParseDeclaration(arena, program, tokens, error, tokensAfter);
+    if ((*tokensAfter)->this.kind == TokenSemicolon)
+        parameters->next = ParseParameterDeclarations(
+            arena, program, (*tokensAfter)->next, tokensAfter
+        );
+    return parameters;
+}
+
+Parameters* ParseParameterList(
+    Arena*      arena,
+    const char* program,
+    Tokens*     tokens,
+    Error*      error,
+    Tokens**    tokensAfter
+)
+{
+    if (tokens->this.kind != TokenOpenParen) {
+        *tokensAfter = tokens;
+        return nullptr;
+    }
+
+    auto parameters = ParseParameterDeclarations(
+        arena, program, tokens->next, error, tokensAfter
+    );
+
+    if ((*tokensAfter)->this.kind != TokenCloseParen) {
+        *error = (Error) {
+            .location = MakeLocation(program, *tokensAfter),
+            .message  = STR("expected ), got"),
+            .dynamic  = (*tokensAfter)->this.lex,
+        };
+        return parameters;
+    }
+    *tokensAfter = (*tokensAfter)->next;
+
+    return parameters;
+}
+
+Subprogram ParseFunction(
+    Arena*      arena,
+    const char* program,
+    Tokens*     tokens,
+    Error*      error,
+    Tokens**    tokensAfter
+)
+{
+    auto prg = (Subprogram) {0};
+    if (tokens->this.kind != TokenIdent) {
+        *error = (Error) {
+            .location = MakeLocation(program, tokens),
+            .message  = STR("expected function name, got"),
+            .dynamic  = tokens->this.lex,
+        };
+        return prg;
+    }
+
+    prg.name = tokens->this.lex;
+    prg.parameters =
+        ParseParameters(arena, program, tokens, error, tokensAfter);
+    if (!ErrorOk(*error))
+        return prg;
+
+    if ((*tokensAfter)->this.kind != TokenColon) {
+        *error = (Error) {
+            .location = MakeLocation(program, *tokensAfter),
+            .message  = STR("expected return type, got"),
+            .dynamic  = tokens->this.lex,
+        };
+        return prg;
+    }
+    prg.returnType =
+        ParseType(arena, program, *tokensAfter, error, tokensAfter);
+    if (!ErrorOk(*error))
+        return prg;
+
+    if ((*tokensAfter)->this.kind != TokenSemicolon) {
+        *error = (Error) {
+            .location = MakeLocation(program, *tokensAfter),
+            .message  = STR("expected semicolon, got"),
+            .dynamic  = tokens->this.lex,
+        };
+        return prg;
+    }
+    prg.body =
+        ParseExpression(arena, program, *tokensAfter, error, tokensAfter);
+    if ((*tokensAfter)->this.kind != TokenSemicolon) {
+        *error = (Error) {
+            .location = MakeLocation(program, *tokensAfter),
+            .message  = STR("expected semicolon, got"),
+            .dynamic  = tokens->this.lex,
+        };
+    }
+    *tokensAfter = (*tokensAfter)->next;
+    return prg;
+}
+
+Subprogram ParseProcedure(
+    Arena*      arena,
+    const char* program,
+    Tokens*     tokens,
+    Error*      error,
+    Tokens**    tokensAfter
+)
+{
+    auto prg = (Subprogram) {
+        .returnType = TypeVoid,
+    };
+    if (tokens->this.kind != TokenIdent) {
+        *error = (Error) {
+            .location = MakeLocation(program, tokens),
+            .message  = STR("expected procedure name, got"),
+            .dynamic  = tokens->this.lex,
+        };
+        return prg;
+    }
+
+    prg.name = tokens->this.lex;
+    prg.parameters =
+        ParseParameters(arena, program, tokens, error, tokensAfter);
+    if (!ErrorOk(*error))
+        return prg;
+
+    if ((*tokensAfter)->this.kind != TokenSemicolon) {
+        *error = (Error) {
+            .location = MakeLocation(program, *tokensAfter),
+            .message  = STR("expected semicolon, got"),
+            .dynamic  = tokens->this.lex,
+        };
+        return prg;
+    }
+    prg.body =
+        ParseExpression(arena, program, *tokensAfter, error, tokensAfter);
+    if ((*tokensAfter)->this.kind != TokenSemicolon) {
+        *error = (Error) {
+            .location = MakeLocation(program, *tokensAfter),
+            .message  = STR("expected semicolon, got"),
+            .dynamic  = tokens->this.lex,
+        };
+    }
+    *tokensAfter = (*tokensAfter)->next;
+    return prg;
+}
+
+Subprogram ParseSubprogram(
+    Arena*      arena,
+    const char* program,
+    Tokens*     tokens,
+    Error*      error,
+    Tokens**    tokensAfter
+)
+{
+    if (tokens->this.kind == TokenFunction)
+        return ParseFunction(arena, program, tokens->next, error, tokensAfter);
+    return ParseProcedure(arena, program, tokens->next, error, tokensAfter);
+}
+
+Subprograms* ParseSubprograms(
+    Arena*      arena,
+    const char* program,
+    Tokens*     tokens,
+    Error*      error,
+    Tokens**    tokensAfter
+)
+{
+    if (tokens->this.kind != TokenProcedure &&
+        tokens->this.kind != TokenFunction)
+        return nullptr;
+
+    auto prgs   = (Subprograms*) Calloc(arena, sizeof(Subprograms));
+    *prgs->this = ParseSubprogram(arena, program, tokens, error, tokensAfter);
+    if (!ErrorOk(*error))
+        return nullptr;
+    prgs->next =
+        ParseSubprograms(arena, program, *tokensAfter, error, tokensAfter);
+    return prgs;
 }
 
 void ParseProgramBody(

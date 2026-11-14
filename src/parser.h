@@ -6,6 +6,7 @@
 #include "tokenizer.h"
 
 typedef enum {
+    TypeVoid,
     TypeInteger,
     TypeReal,
     TypeArray,
@@ -14,9 +15,9 @@ typedef enum {
 struct Type;
 
 typedef struct {
-    struct Type*  content;
-    unsigned long begin;
-    unsigned long end;
+    struct Type* content;
+    long         begin;
+    long         end;
 } Array;
 
 typedef struct {
@@ -91,19 +92,20 @@ typedef struct Declarations {
 } Declarations;
 
 typedef struct {
-    String name;
-    Type   type;
-    bool   reference;
-} Parameter;
+    Declaration this;
+    bool reference;
+} ParameterDeclaration;
 
 typedef struct {
-    Parameter this;
+    ParameterDeclaration this;
     struct Parameters* next;
 } Parameters;
 
 typedef struct {
-    Parameters parameters;
-    Expression body;
+    Parameters* parameters;
+    Expression  body;
+    Type        returnType;
+    String      name;
 } Subprogram;
 
 typedef struct Subprograms {
