@@ -11,8 +11,9 @@ typedef enum {
     StateComment,
     StateClosingComment,
     StatePeriod,
-    StateOperator,
     StateColon,
+    StateGt,
+    StateLt,
 } State;
 
 typedef struct {
@@ -32,11 +33,15 @@ static const Keyword keywords[] = {
     {      .keyword = "end",       .kind = TokenEnd},
     {       .keyword = "if",        .kind = TokenIf},
     {     .keyword = "else",      .kind = TokenElse},
-    {     .keyword = "else",      .kind = TokenElse},
     { .keyword = "function",  .kind = TokenFunction},
     {.keyword = "procedure", .kind = TokenProcedure},
     {     .keyword = "real",      .kind = TokenReal},
     {  .keyword = "integer",   .kind = TokenInteger},
+    {      .keyword = "div",       .kind = TokenDiv},
+    {      .keyword = "mod",       .kind = TokenMod},
+    {      .keyword = "and",       .kind = TokenAnd},
+    {       .keyword = "or",        .kind = TokenOr},
+    {      .keyword = "not",       .kind = TokenNot},
 };
 
 constexpr unsigned long keywordsLen = sizeof(keywords) / sizeof(keywords[0]);
@@ -45,15 +50,15 @@ constexpr unsigned long keywordsLen = sizeof(keywords) / sizeof(keywords[0]);
 
 Error MakeTokenError(
     const char* program,
-    Token* this,
-    String message,
-    String dynamic
+    Token*      this,
+    String      message,
+    String      dynamic
 )
 {
     int i      = 0;
     int line   = 1;
     int column = 1;
-    while (&program[i] <= this->lex.ptr) {
+    while (&program[i] < this->lex.ptr) {
         if (program[i] == '\n') {
             column = 0;
             line += 1;
@@ -169,13 +174,64 @@ Tokens* Tokenize(Arena* arena, char* program, Error* error)
                 token->this.lex.size = 1;
                 state                = StatePeriod;
                 idx += 1;
-            } else if (ispunct(cint)) {
+            } else if (cchar == '+') {
                 token->this.lex.ptr  = &program[idx];
                 token->this.lex.size = 1;
-                state                = StateOperator;
+                token->this.kind     = TokenPlus;
+                token->next = (Tokens*) Calloc(arena, sizeof(*token->next));
+                token       = token->next;
+                idx += 1;
+            } else if (cchar == '-') {
+                token->this.lex.ptr  = &program[idx];
+                token->this.lex.size = 1;
+                token->this.kind     = TokenMinus;
+                token->next = (Tokens*) Calloc(arena, sizeof(*token->next));
+                token       = token->next;
+                idx += 1;
+            } else if (cchar == '*') {
+                token->this.lex.ptr  = &program[idx];
+                token->this.lex.size = 1;
+                token->this.kind     = TokenMul;
+                token->next = (Tokens*) Calloc(arena, sizeof(*token->next));
+                token       = token->next;
+                idx += 1;
+            } else if (cchar == '=') {
+                token->this.lex.ptr  = &program[idx];
+                token->this.lex.size = 1;
+                token->this.kind     = TokenEq;
+                token->next = (Tokens*) Calloc(arena, sizeof(*token->next));
+                token       = token->next;
+                idx += 1;
+            } else if (cchar == '>') {
+                token->this.lex.ptr  = &program[idx];
+                token->this.lex.size = 1;
+                state                = StateGt;
+                idx += 1;
+            } else if (cchar == '<') {
+                token->this.lex.ptr  = &program[idx];
+                token->this.lex.size = 1;
+                state                = StateLt;
+                idx += 1;
+            } else if (cchar == '/') {
+                token->this.lex.ptr  = &program[idx];
+                token->this.lex.size = 1;
+                token->this.kind     = TokenSlash;
+                token->next = (Tokens*) Calloc(arena, sizeof(*token->next));
+                token       = token->next;
                 idx += 1;
             } else {
-                idx += 1;
+                *error = MakeTokenError(
+                    program,
+                    &token->this,
+                    STR("unexpected symbol"),
+                    (String){
+                        .ptr  = &program[idx],
+                        .size = 1,
+                    }
+                );
+                token->next      = nullptr;
+                token->this.kind = TokenEOF;
+                return list;
             }
             break;
         case StateAlpha:
@@ -239,8 +295,6 @@ Tokens* Tokenize(Arena* arena, char* program, Error* error)
                 state            = StateInitial;
                 idx += 1;
             } else {
-                idx += 1;
-                token->this.lex.size += 1;
                 state = StateComment;
             }
             break;
@@ -259,28 +313,56 @@ Tokens* Tokenize(Arena* arena, char* program, Error* error)
                 state            = StateInitial;
             }
             break;
-        case StateOperator:
-            if (ispunct(cint)) {
-                token->this.lex.size += 1;
-                idx += 1;
-            } else {
-                token->next = (Tokens*) Calloc(arena, sizeof(*token->next));
-                token->this.kind = TokenOperator;
-                token            = token->next;
-                state            = StateInitial;
-            }
-            break;
         case StateColon:
             if (cchar == '=') {
+                token->next = (Tokens*) Calloc(arena, sizeof(*token->next));
                 token->this.lex.size += 1;
+                token->this.kind = TokenAssign;
+                token            = token->next;
+                state            = StateInitial;
                 idx += 1;
-                state = StateOperator;
             } else {
-                token->this.lex.ptr  = &program[idx];
-                token->this.lex.size = 1;
-                token->this.kind     = TokenColon;
+                token->this.kind = TokenColon;
                 token->next = (Tokens*) Calloc(arena, sizeof(*token->next));
                 token       = token->next;
+                state       = StateInitial;
+            }
+            break;
+        case StateGt:
+            if (cchar == '=') {
+                token->next = (Tokens*) Calloc(arena, sizeof(*token->next));
+                token->this.lex.size += 1;
+                token->this.kind = TokenGe;
+                token            = token->next;
+                state            = StateInitial;
+                idx += 1;
+            } else {
+                token->this.kind = TokenGt;
+                token->next = (Tokens*) Calloc(arena, sizeof(*token->next));
+                token       = token->next;
+                state       = StateInitial;
+            }
+            break;
+        case StateLt:
+            if (cchar == '=') {
+                token->next = (Tokens*) Calloc(arena, sizeof(*token->next));
+                token->this.lex.size += 1;
+                token->this.kind = TokenLe;
+                token            = token->next;
+                state            = StateInitial;
+                idx += 1;
+            } else if (cchar == '>') {
+                token->next = (Tokens*) Calloc(arena, sizeof(*token->next));
+                token->this.lex.size += 1;
+                token->this.kind = TokenNeq;
+                token            = token->next;
+                state            = StateInitial;
+                idx += 1;
+            } else {
+                token->this.kind = TokenLt;
+                token->next = (Tokens*) Calloc(arena, sizeof(*token->next));
+                token       = token->next;
+                state       = StateInitial;
             }
             break;
         }

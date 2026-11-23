@@ -20,18 +20,50 @@ typedef struct {
     long         end;
 } Array;
 
-typedef struct {
+typedef struct Type {
     Array    array;
     TypeKind kind;
 } Type;
 
 struct Expression;
 
+typedef enum {
+    BinaryPlus,
+    BinaryMinus,
+    BinaryMul,
+    BinaryDiv,
+    BinaryMod,
+    BinaryAnd,
+    BinaryOr,
+    BinaryEq,
+    BinaryGe,
+    BinaryGt,
+    BinaryLe,
+    BinaryLt,
+    BinaryAssign,
+} BinaryOperator;
+
+typedef enum {
+    UnaryPlus,
+    UnaryMinus,
+    UnaryNot,
+} UnaryOperator;
+
 typedef struct {
-    String             operator;
+    UnaryOperator      operator;
+    struct Expression* operand;
+} UnaryOperation;
+
+typedef struct {
+    BinaryOperator     operator;
     struct Expression* left;
     struct Expression* right;
-} Operation;
+} BinaryOperation;
+
+typedef struct {
+    String             name;
+    struct Expression* index;
+} Index;
 
 typedef struct {
     Type   type;
@@ -42,6 +74,11 @@ typedef struct Compound {
     struct Expression* this;
     struct Compound* next;
 } Compound;
+
+typedef struct {
+    String    name;
+    Compound* params;
+} Call;
 
 typedef struct {
     struct Expression* condition;
@@ -57,20 +94,24 @@ typedef struct {
 typedef enum {
     ExpressionLiteral,
     ExpressionName,
-    ExpressionOperation,
     ExpressionIf,
     ExpressionWhile,
     ExpressionCompound,
+    ExpressionBinaryOperation,
+    ExpressionUnaryOperation,
+    ExpressionIndex,
+    ExpressionCall,
 } ExpressionKind;
 
-typedef struct {
+typedef struct Expression {
     union {
-        Literal   literal;
-        String    name;
-        Operation operation;
-        If        iff;
-        While     whilee;
-        Compound  compound;
+        Literal         literal;
+        String          name;
+        UnaryOperation  unary;
+        BinaryOperation binary;
+        If              iff;
+        While           whilee;
+        Compound        compound;
     } this;
 
     ExpressionKind kind;
@@ -96,16 +137,17 @@ typedef struct {
     bool reference;
 } ParameterDeclaration;
 
-typedef struct {
+typedef struct Parameters {
     ParameterDeclaration this;
     struct Parameters* next;
 } Parameters;
 
 typedef struct {
-    Parameters* parameters;
-    Expression  body;
-    Type        returnType;
-    String      name;
+    Parameters*   parameters;
+    Declarations* locals;
+    Expression    body;
+    Type          returnType;
+    String        name;
 } Subprogram;
 
 typedef struct Subprograms {
