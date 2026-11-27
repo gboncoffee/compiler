@@ -9,6 +9,7 @@ typedef enum {
     TypeVoid,
     TypeInteger,
     TypeReal,
+    TypeComptimeNum,
     TypeArray,
 } TypeKind;
 
@@ -111,7 +112,9 @@ typedef struct Expression {
         BinaryOperation binary;
         If              iff;
         While           whilee;
-        Compound        compound;
+        Compound*       compound;
+        Index           index;
+        Call            call;
     } this;
 
     ExpressionKind kind;

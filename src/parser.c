@@ -296,6 +296,64 @@ Declarations* ParseVariableDeclarations(
     return decls;
 }
 
+Expression ParseExpression(
+    Arena*      arena,
+    const char* program,
+    Tokens*     tokens,
+    Error*      error,
+    Tokens**    tokensAfter
+);
+
+Compound* ParseCompoundRec(
+    Arena*      arena,
+    const char* program,
+    Tokens*     tokens,
+    Error*      error,
+    Tokens**    tokensAfter
+)
+{
+    if (tokens->this.kind == TokenEnd) {
+        *tokensAfter = tokens->next;
+        return nullptr;
+    }
+
+    auto c   = (Compound*) Calloc(arena, sizeof(Compound));
+    *c->this = ParseExpression(arena, program, tokens, error, tokensAfter);
+    if (!ErrorOk(*error))
+        return c;
+
+    if ((*tokensAfter)->this.kind != TokenSemicolon) {
+        *error = (Error) {
+            .location = MakeLocation(program, tokens),
+            .message  = STR("expected ;, got"),
+            .dynamic  = (*tokensAfter)->this.lex,
+        };
+        return c;
+    }
+
+    *tokensAfter = (*tokensAfter)->next;
+
+    c->next = ParseCompoundRec(
+        arena, program, (*tokensAfter)->next, error, tokensAfter
+    );
+    return c;
+}
+
+Expression ParseCompound(
+    Arena*      arena,
+    const char* program,
+    Tokens*     tokens,
+    Error*      error,
+    Tokens**    tokensAfter
+)
+{
+    Expression exp;
+    exp.kind = ExpressionCompound;
+    exp.this.compound =
+        ParseCompoundRec(arena, program, tokens, error, tokensAfter);
+    return exp;
+}
+
 Expression ParseIf(
     Arena*      arena,
     const char* program,
@@ -320,15 +378,18 @@ Expression ParseWhile(
     Tokens**    tokensAfter
 )
 {
-    (void) arena;
-    (void) program;
-    (void) tokens;
-    (void) error;
-    (void) tokensAfter;
+    tokens = tokens->next;
+
+    auto exp = ParseExpression(arena, program, tokens, error, tokensAfter);
+    if (!ErrorOk(*error))
+        return (Expression) {0};
+
+    // TODO.
+    (void) exp;
     return (Expression) {0};
 }
 
-Expression ParseCompound(
+Expression ParseIndex(
     Arena*      arena,
     const char* program,
     Tokens*     tokens,
@@ -336,12 +397,84 @@ Expression ParseCompound(
     Tokens**    tokensAfter
 )
 {
-    (void) arena;
-    (void) program;
-    (void) tokens;
-    (void) error;
-    (void) tokensAfter;
-    return (Expression) {0};
+    Expression exp;
+    exp.kind = ExpressionIndex;
+    auto idx =
+        ParseExpression(arena, program, tokens->next, error, tokensAfter);
+    if (!ErrorOk(*error))
+        return exp;
+    exp.this.index = (Index) {
+        .name = tokens->this.lex, .index = Calloc(arena, sizeof(Expression))
+    };
+    *exp.this.index.index = idx;
+    return exp;
+}
+
+Compound* ParseParameters(
+    Arena*      arena,
+    const char* program,
+    Tokens*     tokens,
+    Error*      error,
+    Tokens**    tokensAfter
+)
+{
+    if (tokens->this.kind == TokenCloseParen) {
+        *tokensAfter = tokens;
+        return nullptr;
+    }
+
+    auto exp = ParseExpression(arena, program, tokens, error, tokensAfter);
+    if (!ErrorOk(*error))
+        return nullptr;
+    auto c   = (Compound*) Calloc(arena, sizeof(Compound));
+    c->this  = (Expression*) Calloc(arena, sizeof(c->this));
+    *c->this = exp;
+
+    if ((*tokensAfter)->this.kind == TokenCloseParen) {
+        c->next = nullptr;
+        return c;
+    }
+    if ((*tokensAfter)->this.kind != TokenComma) {
+        *error = (Error) {
+            .location = MakeLocation(program, tokens),
+            .message  = STR("expected comma, got"),
+            .dynamic  = (*tokensAfter)->this.lex,
+        };
+        return c;
+    }
+
+    c->next = ParseParameters(arena, program, tokens, error, tokensAfter);
+
+    return c;
+}
+
+Expression ParseCall(
+    Arena*      arena,
+    const char* program,
+    Tokens*     tokens,
+    Error*      error,
+    Tokens**    tokensAfter
+)
+{
+    Call c;
+    auto exp = (Expression) {0};
+    c.name   = tokens->this.lex;
+    c.params =
+        ParseParameters(arena, program, tokens->next->next, error, tokensAfter);
+    if (!ErrorOk(*error))
+        return exp;
+    if ((*tokensAfter)->this.kind != TokenCloseParen) {
+        *error = (Error) {
+            .location = MakeLocation(program, tokens),
+            .message  = STR("expected ), got"),
+            .dynamic  = (*tokensAfter)->this.lex,
+        };
+        return exp;
+    }
+    exp.this.call = c;
+    exp.kind      = ExpressionCall;
+    *tokensAfter  = (*tokensAfter)->next;
+    return exp;
 }
 
 Expression ParseIdentOrCallOrIndex(
@@ -352,12 +485,18 @@ Expression ParseIdentOrCallOrIndex(
     Tokens**    tokensAfter
 )
 {
-    (void) arena;
-    (void) program;
-    (void) tokens;
-    (void) error;
-    (void) tokensAfter;
-    return (Expression) {0};
+    Expression expression;
+    switch (tokens->next->this.kind) {
+    case TokenOpenParen:
+        return ParseCall(arena, program, tokens, error, tokensAfter);
+    case TokenOpenSq:
+        return ParseIndex(arena, program, tokens, error, tokensAfter);
+    default:
+        expression.kind      = ExpressionName;
+        expression.this.name = tokens->this.lex;
+        *tokensAfter         = tokens->next;
+        return expression;
+    }
 }
 
 Expression ParsePrimary(
@@ -372,39 +511,39 @@ Expression ParsePrimary(
 
     switch (tokens->this.kind) {
     case TokenDigit:
-        expression.kind            = ExpressionLiteral;
-        expression.literal.type    = TypeInteger;
-        expression.literal.content = tokens->this.lex;
+        expression.kind                 = ExpressionLiteral;
+        expression.this.literal.type    = (Type) {.kind = TypeComptimeNum};
+        expression.this.literal.content = tokens->this.lex;
         return expression;
     case TokenIdent:
         return ParseIdentOrCallOrIndex(
             arena, program, tokens, error, tokensAfter
         );
     case TokenPlus:
-        expression.kind  = ExpressionUnaryOperation;
-        expression.unary = (UnaryOperation) {
+        expression.kind       = ExpressionUnaryOperation;
+        expression.this.unary = (UnaryOperation) {
             .operator= UnaryPlus,
             .operand = (Expression*) Calloc(arena, sizeof(Expression)),
         };
-        *expression.unary.operand =
+        *expression.this.unary.operand =
             ParsePrimary(arena, program, tokens->next, error, tokensAfter);
         return expression;
     case TokenMinus:
-        expression.kind  = ExpressionUnaryOperation;
-        expression.unary = (UnaryOperation) {
+        expression.kind       = ExpressionUnaryOperation;
+        expression.this.unary = (UnaryOperation) {
             .operator= UnaryMinus,
             .operand = (Expression*) Calloc(arena, sizeof(Expression)),
         };
-        *expression.unary.operand =
+        *expression.this.unary.operand =
             ParsePrimary(arena, program, tokens->next, error, tokensAfter);
         return expression;
     case TokenNot:
-        expression.kind  = ExpressionUnaryOperation;
-        expression.unary = (UnaryOperation) {
+        expression.kind       = ExpressionUnaryOperation;
+        expression.this.unary = (UnaryOperation) {
             .operator= UnaryNot,
             .operand = (Expression*) Calloc(arena, sizeof(Expression)),
         };
-        *expression.unary.operand =
+        *expression.this.unary.operand =
             ParsePrimary(arena, program, tokens->next, error, tokensAfter);
         return expression;
     case TokenOpenParen:
@@ -419,7 +558,12 @@ Expression ParsePrimary(
         *tokensAfter = (*tokensAfter)->next;
         return expression;
     default:
-        break;
+        *error = (Error) {
+            .location = MakeLocation(program, tokens),
+            .message  = STR("unexpected token "),
+            .dynamic  = tokens->this.lex,
+        };
+        return (Expression) {0};
     }
 }
 
@@ -506,8 +650,45 @@ Expression ParseBinary(
 )
 {
     auto left = ParsePrimary(arena, program, tokens, error, tokensAfter);
+    if (!ErrorOk(*error))
+        return left;
 
-    // TODO.
+    for (;;) {
+        BinaryOperator operator;
+        if (Token2BinaryOperator((*tokensAfter)->this.kind, &operator))
+            return left;
+
+        auto precedence = Precedence(operator);
+        if (precedence < minPrec)
+            return left;
+
+        auto rightMinPrec = operator== BinaryAssign ? precedence
+                                                    : precedence + 1;
+
+        auto right = ParseBinary(
+            rightMinPrec,
+            arena,
+            program,
+            (*tokensAfter)->next,
+            error,
+            tokensAfter
+        );
+        if (!ErrorOk(*error))
+            return right;
+
+        auto op = (BinaryOperation) {
+            .operator= operator,
+            .left  =(Expression*) Calloc(arena, sizeof(Expression)),
+            .right = (Expression*) Calloc(arena, sizeof(Expression)),
+        };
+        auto binary = (Expression) {
+            .kind        = ExpressionBinaryOperation,
+            .this.binary = op,
+        };
+        *binary.this.binary.left  = left;
+        *binary.this.binary.right = right;
+        left                      = binary;
+    }
 }
 
 Expression ParseExpression(
@@ -520,11 +701,11 @@ Expression ParseExpression(
 {
     switch (tokens->this.kind) {
     case TokenIf:
-        return ParseIf(arena, program, tokens, error, tokensAfter);
+        return ParseIf(arena, program, tokens->next, error, tokensAfter);
     case TokenWhile:
-        return ParseWhile(arena, program, tokens, error, tokensAfter);
+        return ParseWhile(arena, program, tokens->next, error, tokensAfter);
     case TokenBegin:
-        return ParseCompound(arena, program, tokens, error, tokensAfter);
+        return ParseCompound(arena, program, tokens->next, error, tokensAfter);
     default:
         return ParseBinary(0, arena, program, tokens, error, tokensAfter);
     }
